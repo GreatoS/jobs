@@ -4,8 +4,6 @@ A research tool for visually exploring Bureau of Labor Statistics [Occupational 
 
 **Live demo: [karpathy.ai/jobs](https://karpathy.ai/jobs/)**
 
-![US Job Market Treemap](jobs.png)
-
 ## What's here
 
 The BLS OOH covers **342 occupations** spanning every sector of the US economy, with detailed data on job duties, work environment, education requirements, pay, and employment projections. We scraped all of it and built an interactive treemap visualization where each rectangle's **area** is proportional to total employment and **color** shows the selected metric — toggle between BLS projected growth outlook, median pay, education requirements, and AI exposure.
