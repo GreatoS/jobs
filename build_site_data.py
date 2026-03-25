@@ -2,7 +2,7 @@
 Build a compact JSON for the website by merging CSV stats with AI exposure scores.
 
 Reads occupations.csv (for stats) and scores.json (for AI exposure).
-Writes site/data.json.
+Writes docs/data.json.
 
 Usage:
     uv run python build_site_data.py
@@ -18,6 +18,11 @@ def main():
         scores_list = json.load(f)
     scores = {s["slug"]: s for s in scores_list}
 
+    # Load robotics scores
+    with open("scores_robotics.json") as f:
+        robotics_list = json.load(f)
+    robotics = {s["slug"]: s for s in robotics_list}
+
     # Load CSV stats
     with open("occupations.csv") as f:
         reader = csv.DictReader(f)
@@ -28,6 +33,7 @@ def main():
     for row in rows:
         slug = row["slug"]
         score = scores.get(slug, {})
+        robotics_score = robotics.get(slug, {})
         data.append({
             "title": row["title"],
             "slug": slug,
@@ -39,15 +45,17 @@ def main():
             "education": row["entry_education"],
             "exposure": score.get("exposure"),
             "exposure_rationale": score.get("rationale"),
+            "robotics": robotics_score.get("exposure"),
+            "robotics_rationale": robotics_score.get("rationale"),
             "url": row.get("url", ""),
         })
 
     import os
-    os.makedirs("site", exist_ok=True)
-    with open("site/data.json", "w") as f:
+    os.makedirs("docs", exist_ok=True)
+    with open("docs/data.json", "w") as f:
         json.dump(data, f)
 
-    print(f"Wrote {len(data)} occupations to site/data.json")
+    print(f"Wrote {len(data)} occupations to docs/data.json")
     total_jobs = sum(d["jobs"] for d in data if d["jobs"])
     print(f"Total jobs represented: {total_jobs:,}")
 
