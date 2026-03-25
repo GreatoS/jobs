@@ -134,6 +134,19 @@ body {
 .hbar-fill { height: 100%; border-radius: 2px; }
 .hbar-val { width: 30px; flex-shrink: 0; font-size: 11px; color: var(--fg); text-align: right; }
 
+#searchBox {
+  background: var(--bg2);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 13px;
+  padding: 5px 10px;
+  width: 200px;
+  outline: none;
+}
+#searchBox:focus { border-color: rgba(255,255,255,0.3); }
+#searchBox::placeholder { color: var(--fg2); }
+
 .controls-row {
   display: flex;
   align-items: center;
@@ -250,7 +263,12 @@ Respond with ONLY a JSON object in this exact format, no other text:
         <button data-mode="pay">Median Pay</button>
         <button data-mode="education">Education</button>
         <button data-mode="exposure">Digital AI Exposure</button>
+        <button data-mode="robotics">Robotics Exposure</button>
       </div>
+    </div>
+    <div class="stat-section">
+      <h3>Search</h3>
+      <input type="text" id="searchBox" placeholder="Type a job title…" autocomplete="off">
     </div>
     <div class="gradient-legend">
       <span id="legendLow">Declining</span>
@@ -342,9 +360,15 @@ function exposureColor(v, a) {
   if (v == null) return `rgba(128,128,128,${a})`;
   return greenRedCSS(v / 10, a);
 }
+function roboticsColor(v, a) {
+  if (v == null) return `rgba(200,200,200,${a})`;
+  const t = v / 10;
+  return `rgba(${Math.round(30 + 225*t)},${Math.round(180 - 140*t)},${Math.round(30)},${a})`;
+}
 
 function tileColorCSS(d, alpha) {
   if (colorMode === "exposure") return exposureColor(d.exposure, alpha);
+  if (colorMode === "robotics") return roboticsColor(d.robotics, alpha);
   if (colorMode === "outlook") return outlookColor(d.outlook, alpha);
   if (colorMode === "pay") return payColor(d.pay, alpha);
   if (colorMode === "education") {
@@ -356,6 +380,10 @@ function tileColorCSS(d, alpha) {
 function tileSubInfo(r) {
   if (colorMode === "exposure") {
     return (r.exposure != null ? r.exposure + "/10" : "") +
+           (r.jobs ? " \u00b7 " + formatNumber(r.jobs) + " jobs" : "");
+  }
+  if (colorMode === "robotics") {
+    return (r.robotics != null ? r.robotics + "/10" : "") +
            (r.jobs ? " \u00b7 " + formatNumber(r.jobs) + " jobs" : "");
   }
   if (colorMode === "outlook") {
@@ -438,7 +466,9 @@ function worstAspect(row, rowSum, side, totalArea, availableExtent) {
 
 let data = [];
 let rects = [];
+let catLabels = [];
 let hovered = null;
+let searchQuery = "";
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 let dpr = window.devicePixelRatio || 1;
@@ -460,10 +490,13 @@ function layout() {
   })).sort((a, b) => b.value - a.value);
   const catRects = squarify(categories, tx, ty, tw, th);
   rects = [];
+  catLabels = [];
   for (const cr of catRects) {
     const items = cr.items.map(d => ({ ...d, value: d.jobs || 1 }));
     const innerRects = squarify(items, cr.rx + GAP, cr.ry + GAP, cr.rw - GAP * 2, cr.rh - GAP * 2);
     for (const ir of innerRects) rects.push(ir);
+    const label = cr.cat.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    catLabels.push({ label, rx: cr.rx, ry: cr.ry, rw: cr.rw, rh: cr.rh });
   }
 }
 
@@ -473,11 +506,14 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
   for (const r of rects) {
     const isHovered = r === hovered;
+    const matchesSearch = !searchQuery || r.title.toLowerCase().includes(searchQuery);
     const g = GAP / 2, rx = r.rx + g, ry = r.ry + g, rw = r.rw - g * 2, rh = r.rh - g * 2;
     if (rw <= 0 || rh <= 0) continue;
-    ctx.fillStyle = tileColorCSS(r, isHovered ? 0.8 : 0.5);
+    const alpha = searchQuery && !matchesSearch ? 0.12 : (isHovered ? 0.8 : 0.5);
+    ctx.fillStyle = tileColorCSS(r, alpha);
     ctx.fillRect(rx, ry, rw, rh);
     if (isHovered) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(rx, ry, rw, rh); }
+    if (searchQuery && matchesSearch) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.strokeRect(rx, ry, rw, rh); }
     if (rw > 50 && rh > 18) {
       ctx.save(); ctx.beginPath(); ctx.rect(rx + 4, ry + 2, rw - 8, rh - 4); ctx.clip();
       const fontSize = Math.min(13, Math.max(9, Math.min(rw / 10, rh / 3)));
@@ -492,6 +528,26 @@ function draw() {
       }
       ctx.restore();
     }
+  }
+  // Category labels — shrink font until text fits inside block
+  for (const cl of catLabels) {
+    if (cl.rw < 60 || cl.rh < 24) continue;
+    const maxW = cl.rw - 12, maxH = cl.rh - 8;
+    let fontSize = Math.min(20, Math.max(9, Math.min(cl.rw / 8, cl.rh / 4)));
+    ctx.save();
+    ctx.beginPath(); ctx.rect(cl.rx, cl.ry, cl.rw, cl.rh); ctx.clip();
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    // Shrink until it fits
+    while (fontSize >= 9) {
+      ctx.font = `700 ${fontSize}px -apple-system, system-ui, sans-serif`;
+      if (ctx.measureText(cl.label).width <= maxW) break;
+      fontSize -= 1;
+    }
+    if (ctx.measureText(cl.label).width <= maxW) {
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.fillText(cl.label, cl.rx + cl.rw / 2, cl.ry + cl.rh / 2);
+    }
+    ctx.restore();
   }
 }
 
@@ -519,6 +575,13 @@ function tooltipHighlight(d) {
     if (v == null) return "";
     const color = exposureColor(v, 1);
     return `<span style="color:${color};font-weight:600;">Digital AI Exposure: ${v}/10</span>` +
+      `<div style="margin-top:3px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;">` +
+      `<div style="height:100%;width:${v * 10}%;background:${color};border-radius:2px;"></div></div>`;
+  } else if (colorMode === "robotics") {
+    const v = d.robotics;
+    if (v == null) return "";
+    const color = roboticsColor(v, 1);
+    return `<span style="color:${color};font-weight:600;">Robotics Exposure: ${v}/10</span>` +
       `<div style="margin-top:3px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;">` +
       `<div style="height:100%;width:${v * 10}%;background:${color};border-radius:2px;"></div></div>`;
   } else if (colorMode === "outlook") {
@@ -554,7 +617,7 @@ function showTooltip(d, mx, my) {
     <span class="label">Jobs (2024)</span><span class="value">${formatNumber(d.jobs)}</span>
     <span class="label">Outlook</span><span class="value">${d.outlook != null ? d.outlook + '%' : '\u2014'} ${d.outlook_desc ? '(' + d.outlook_desc + ')' : ''}</span>
     <span class="label">Education</span><span class="value">${d.education || '\u2014'}</span>`;
-  tt.querySelector(".tt-rationale").textContent = colorMode === "exposure" ? (d.exposure_rationale || "") : "";
+  tt.querySelector(".tt-rationale").textContent = colorMode === "exposure" ? (d.exposure_rationale || "") : colorMode === "robotics" ? (d.robotics_rationale || "") : "";
   let tx = mx + 16, ty = my - 16;
   if (tx + 340 > window.innerWidth) tx = mx - 356;
   if (ty < 10) ty = my + 16;
@@ -629,6 +692,7 @@ function updateStats() {
   if (colorMode === "outlook") updateOutlookStats(totalJobs);
   else if (colorMode === "pay") updatePayStats(totalJobs);
   else if (colorMode === "education") updateEducationStats(totalJobs);
+  else if (colorMode === "robotics") updateRoboticsStats(totalJobs);
   else updateExposureStats(totalJobs);
 }
 
@@ -846,6 +910,53 @@ function updateExposureStats(totalJobs) {
   document.getElementById("block8").innerHTML = "";
 }
 
+function updateRoboticsStats(totalJobs) {
+  let wS = 0, wC = 0;
+  for (const d of data) { if (d.robotics != null && d.jobs) { wS += d.robotics * d.jobs; wC += d.jobs; } }
+  const avg = wC > 0 ? wS / wC : 0;
+  document.getElementById("block2").innerHTML = `<h3>Avg. robotics exposure</h3>
+    <div class="stat-big"><span style="color:${roboticsColor(avg, 1)}">${avg.toFixed(1)}</span></div>
+    <div class="stat-label">job-weighted, 0\u201310</div>`;
+
+  const histogram = new Array(11).fill(0);
+  for (const d of data) { if (d.robotics != null && d.jobs) histogram[d.robotics] += d.jobs; }
+  const maxH = Math.max(...histogram);
+  document.getElementById("block3").innerHTML = `<h3>Jobs by robotics exposure</h3>
+    <div class="histogram">${histogram.map((c, i) => `<div class="bar" style="height:${Math.max(2, maxH > 0 ? c / maxH * 100 : 0)}%;background:${roboticsColor(i, 0.7)}"></div>`).join("")}</div>
+    <div class="hist-labels"><span>0</span><span>5</span><span>10</span></div>`;
+
+  const tierDefs = [
+    { label: "Minimal (0\u20131)", lo: 0, hi: 1, mid: 0.5 },
+    { label: "Low (2\u20133)", lo: 2, hi: 3, mid: 2.5 },
+    { label: "Moderate (4\u20135)", lo: 4, hi: 5, mid: 4.5 },
+    { label: "High (6\u20137)", lo: 6, hi: 7, mid: 6.5 },
+    { label: "Very high (8\u201310)", lo: 8, hi: 10, mid: 9 },
+  ];
+  const tiers = tierDefs.map(t => {
+    let jobs = 0;
+    for (const d of data) { if (d.robotics != null && d.jobs && d.robotics >= t.lo && d.robotics <= t.hi) jobs += d.jobs; }
+    return { ...t, jobs, color: roboticsColor(t.mid, 1) };
+  });
+  document.getElementById("block4").innerHTML = `<h3>Robotics tiers</h3><div class="tier-bar">${renderTiers(tiers, totalJobs)}</div>`;
+
+  const byPay = weightedAvgByGroups(PAY_BANDS, (d, g) => d.pay != null && d.pay >= g.min && d.pay < g.max, d => d.robotics);
+  document.getElementById("block5").innerHTML = `<h3>Robotics by pay</h3><div class="hbar-chart">${renderHbars(byPay.map(g => ({
+    label: g.label, val: g.avg.toFixed(1), pct: g.avg / 10 * 100, color: roboticsColor(g.avg, 0.8)
+  })))}</div>`;
+
+  const byEdu = weightedAvgByGroups(EDU_GROUPS, (d, g) => g.match.includes(d.education), d => d.robotics);
+  document.getElementById("block6").innerHTML = `<h3>Robotics by education</h3><div class="hbar-chart">${renderHbars(byEdu.map(g => ({
+    label: g.label, val: g.avg.toFixed(1), pct: g.avg / 10 * 100, color: roboticsColor(g.avg, 0.8)
+  })))}</div>`;
+
+  let wagesExposed = 0;
+  for (const d of data) { if (d.robotics != null && d.robotics >= 7 && d.jobs && d.pay) wagesExposed += d.jobs * d.pay; }
+  document.getElementById("block7").innerHTML = `<h3>Wages exposed</h3>
+    <div class="stat-big" style="color:${roboticsColor(8, 1)}">$${(wagesExposed / 1e12).toFixed(1)}T</div>
+    <div class="stat-label">annual, in jobs scoring 7+</div>`;
+  document.getElementById("block8").innerHTML = "";
+}
+
 // ── Events ─────────────────────────────────────────────────────────────
 
 canvas.addEventListener("mousemove", (e) => {
@@ -862,6 +973,7 @@ function resize() { dpr = window.devicePixelRatio || 1; layout(); draw(); }
 
 const LEGEND_CONFIG = {
   exposure:  { low: "Low", high: "High" },
+  robotics:  { low: "Low", high: "High" },
   outlook:   { low: "Declining", high: "Growing" },
   pay:       { low: "$25K", high: "$250K" },
   education: { low: "No degree", high: "Doctoral" },
@@ -872,7 +984,7 @@ function drawGradientLegend() {
   const gctx = c.getContext("2d");
   for (let x = 0; x < 80; x++) {
     const t = x / 79;
-    gctx.fillStyle = colorMode === "exposure" ? greenRedCSS(t, 1) : greenRedCSS(1 - t, 1);
+    gctx.fillStyle = colorMode === "robotics" ? roboticsColor(t * 10, 1) : colorMode === "exposure" ? greenRedCSS(t, 1) : greenRedCSS(1 - t, 1);
     gctx.fillRect(x, 0, 1, 8);
   }
   const cfg = LEGEND_CONFIG[colorMode];
@@ -893,6 +1005,13 @@ document.getElementById("colorToggle").addEventListener("click", (e) => {
   draw();
   // Re-layout since stats height may have changed
   requestAnimationFrame(resize);
+});
+
+// ── Search ──────────────────────────────────────────────────────────────
+
+document.getElementById("searchBox").addEventListener("input", (e) => {
+  searchQuery = e.target.value.toLowerCase().trim();
+  draw();
 });
 
 // ── Load ───────────────────────────────────────────────────────────────
